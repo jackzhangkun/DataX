@@ -14,13 +14,20 @@ import com.alibaba.datax.core.util.ExceptionTracker;
 import com.alibaba.datax.core.util.FrameworkErrorCode;
 import com.alibaba.datax.core.util.container.CoreConstant;
 import com.alibaba.datax.core.util.container.LoadUtil;
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+import com.alibaba.fastjson.JSONPath;
 import org.apache.commons.cli.BasicParser;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
+import org.apache.commons.io.Charsets;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -199,24 +206,58 @@ public class Engine {
     }
 
     public static void main(String[] args) throws Exception {
+        //vm 参数-Ddatax.home=C:\Users\25134\Downloads\DataX-master\target\datax\datax
+        //应用参数-mode standalone -jobid -1 -job C:\Users\25134\Downloads\DataX-master\target\datax\datax\job\gis_basic_tables.json
+        String [] tables={"gis_js_nlxb_rs", "gis_js_rjxkxb_rs", "gis_js_xlxb_rs", "gis_js_xrzwxb_rs", "gis_js_xx_jbxx", "gis_zxx_bj", "gis_zxx_cjxs_rs", "gis_zxx_lset_rs", "gis_zxx_mz_rs", "gis_zxx_nl_rs", "gis_zxx_rs", "gis_zxx_xbrs", "gis_zxx_xx_jbxx", "gis_zxx_xx_jbxx_tjb", "gis_zz_nlxb_rs",
+                "gis_zz_rs", "gis_zz_xx_jbxx","gjs_js_rs"};
+        System.setProperty("datax.home","E:\\DataX\\target\\datax\\datax");
+        String jsonFile = "E:\\DataX\\target\\datax\\datax\\job\\gis_basic_tables.json";
+
+        List<String> errorList = new ArrayList<>();
         int exitCode = 0;
-        try {
-            Engine.entry(args);
-        } catch (Throwable e) {
-            exitCode = 1;
-            LOG.error("\n\n经DataX智能分析,该任务最可能的错误原因是:\n" + ExceptionTracker.trace(e));
+        for (String table:tables){
+            long start = System.currentTimeMillis();  //开始时间
 
-            if (e instanceof DataXException) {
-                DataXException tempException = (DataXException) e;
-                ErrorCode errorCode = tempException.getErrorCode();
-                if (errorCode instanceof FrameworkErrorCode) {
-                    FrameworkErrorCode tempErrorCode = (FrameworkErrorCode) errorCode;
-                    exitCode = tempErrorCode.toExitValue();
+            File file = new File(jsonFile);
+            String file1 = FileUtils.readFileToString(file, Charsets.toCharset("utf-8"));//StandardCharsets.UTF_8
+
+            JSONObject jsonobject = JSON.parseObject(file1);
+
+            //JSONPath.eval(jsonobject,"$.job.content.reader.parameter.connection.table");
+            //JSONPath.eval(jsonobject,"$.job.content.writer.parameter.connection.table");
+
+            List<String> tableList = new ArrayList<>();
+            tableList.add(table);
+            JSONPath.set(jsonobject,"$.job.content.reader.parameter.connection.table",tableList);
+            JSONPath.set(jsonobject,"$.job.content.writer.parameter.connection.table",tableList);
+            List<String> preSqlList = new ArrayList<>();
+            preSqlList.add("TRUNCATE TABLE "+table);
+            JSONPath.set(jsonobject,"$.job.content.writer.parameter.preSql",preSqlList);
+
+            FileUtils.write(file,jsonobject.toString(),"utf-8");
+
+            String[] dataArgs = {"-job", jsonFile, "-mode", "standalone", "-jobid", "-1"};
+            try {
+                Engine.entry(dataArgs);
+            } catch (Throwable e) {
+                errorList.add(table);
+                exitCode = 1;
+                LOG.error("\n\n经DataX智能分析,该任务最可能的错误原因是:\n" + ExceptionTracker.trace(e));
+                if (e instanceof DataXException) {
+                    DataXException tempException = (DataXException) e;
+                    ErrorCode errorCode = tempException.getErrorCode();
+                    if (errorCode instanceof FrameworkErrorCode) {
+                        FrameworkErrorCode tempErrorCode = (FrameworkErrorCode) errorCode;
+                        exitCode = tempErrorCode.toExitValue();
+                    }
                 }
-            }
 
-            System.exit(exitCode);
+                //System.exit(exitCode);
+            }
+            long end = System.currentTimeMillis();    //
+            LOG.info(table+"运行了(单位毫秒)：" + (end - start));
         }
+        LOG.info("错误个数 "+ errorList.size());
         System.exit(exitCode);
     }
 
